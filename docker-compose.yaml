@@ -29,6 +29,13 @@
 
 x-java-env: &java-env
     JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--Xmx512m}"
+    # The upstream tractusx/edc-* images hard-code the OpenTelemetry javaagent in
+    # their entrypoint, defaulting its OTLP exporter to localhost:4318. This stack
+    # ships no collector, so the agent endlessly fails to export, swallows the EDC
+    # app logs (JUL FINE has no effect while it is active), and adds okhttp
+    # overhead. Disable it by default; set OTEL_JAVAAGENT_ENABLED=true (and run a
+    # collector) to opt back in.
+    OTEL_JAVAAGENT_ENABLED: "${OTEL_JAVAAGENT_ENABLED:-false}"
 
 services:
     # --- HTTPS termination ---------------------------------------------------
@@ -222,7 +229,9 @@ services:
             # private VPN to reach it from another host.
             - "127.0.0.1:${EDC_MANAGEMENT_HOST_PORT:-29181}:8081"
         healthcheck:
-            test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/api/check/health || exit 1"]
+            # EDC's observability API exposes /check/{liveness,readiness,startup}
+            # but NOT /check/health (404). Use startup, matching the dataplane.
+            test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/api/check/startup || exit 1"]
             interval: 10s
             timeout: 5s
             retries: 30
