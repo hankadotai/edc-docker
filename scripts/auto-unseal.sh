@@ -12,7 +12,8 @@
 # This long-running sidecar watches Vault and re-unseals it from the persisted
 # init.json (in the vault-state volume) whenever it is sealed, so the stack
 # self-heals across restarts. Requires that vault-init has run at least once
-# (it creates /vault/state/init.json). No jq/apk needed.
+# (it creates /vault/state/init.json). Runs as root so it can read the
+# root:root 0600 init.json and apk-install jq (matching vault-init.sh).
 ###############################################################################
 set -u
 
@@ -21,24 +22,22 @@ export VAULT_ADDR
 INIT_FILE="/vault/state/init.json"
 INTERVAL="${UNSEAL_INTERVAL:-15}"
 
+command -v jq >/dev/null 2>&1 || apk add --no-cache jq >/dev/null 2>&1 || true
+
 is_sealed() {
     vault status 2>/dev/null | grep -q '^Sealed[[:space:]]*true'
-}
-
-# Print the unseal_keys_b64 entries, one per line, without jq.
-unseal_keys() {
-    sed -n 's/.*"unseal_keys_b64":\[\([^]]*\)\].*/\1/p' "${INIT_FILE}" \
-        | tr ',' '\n' | sed 's/[" ]//g'
 }
 
 echo "[auto-unseal] watcher started (interval=${INTERVAL}s)"
 while true; do
     if [ -f "${INIT_FILE}" ] && is_sealed; then
         echo "[auto-unseal] Vault is sealed — unsealing from ${INIT_FILE}"
+        command -v jq >/dev/null 2>&1 || apk add --no-cache jq >/dev/null 2>&1 || true
         i=0
-        for key in $(unseal_keys); do
-            [ "${i}" -ge 3 ] && break
-            [ -n "${key}" ] && vault operator unseal "${key}" >/dev/null 2>&1
+        while [ "${i}" -lt 3 ]; do
+            key="$(jq -r ".unseal_keys_b64[${i}]" "${INIT_FILE}" 2>/dev/null)"
+            [ -n "${key}" ] && [ "${key}" != "null" ] && \
+                vault operator unseal "${key}" >/dev/null 2>&1
             i=$((i + 1))
         done
         if is_sealed; then
