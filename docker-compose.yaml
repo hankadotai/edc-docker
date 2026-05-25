@@ -141,6 +141,27 @@ services:
             vault:
                 condition: service_healthy
 
+    # --- Vault auto-unseal sidecar (self-heal across restarts) ---------------
+    # vault-init unseals on `docker compose up`, but a host reboot restarts the
+    # EDC via Docker's restart policy WITHOUT re-running the one-shot vault-init,
+    # leaving Vault sealed (→ EDC DSP 401 / health 503). This long-running
+    # sidecar re-unseals from the persisted init.json whenever Vault is sealed,
+    # so the stack self-heals across restarts.
+    vault-unseal:
+        image: hashicorp/vault:1.21.4
+        restart: unless-stopped
+        # init.json is written root:root mode 600 by vault-init; read it as root.
+        user: "0"
+        environment:
+            VAULT_ADDR: "http://vault:8200"
+        volumes:
+            - vault-state:/vault/state:ro
+            - ./scripts/auto-unseal.sh:/usr/local/bin/auto-unseal.sh:ro
+        entrypoint: ["/bin/sh", "/usr/local/bin/auto-unseal.sh"]
+        depends_on:
+            vault:
+                condition: service_healthy
+
     # --- EDC control-plane ---------------------------------------------------
     controlplane:
         image: tractusx/edc-controlplane-postgresql-hashicorp-vault:${EDC_VERSION}
