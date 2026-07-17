@@ -206,17 +206,33 @@ echo -n "$(grep EDC_BPN .env | cut -d= -f2)" | base64 | tr -d '='
 ```bash
 docker compose up -d --wait vault
 docker compose run --rm vault-init
+docker compose up -d vault-unseal
 ```
 
-`vault-init` will print a clearly-marked block instructing you to back up the unseal keys + root token. Do it now:
+`vault-init` will print a clearly-marked block instructing you to back up the unseal keys + root token. Do it now.
+
+The backup lives at `/vault/state/init.json` inside the `vault-state` volume.
+Copy it out through the long-running **`vault-unseal`** sidecar (it mounts that
+volume). Do **not** copy from `vault-init`: it is a one-shot (`docker compose
+run --rm`) that is removed the instant it exits, so `docker compose cp
+vault-init:...` fails with `no container found for service "vault-init"`.
 
 ```bash
-docker compose cp vault-init:/vault/state/init.json ./vault-init.json
+docker compose cp vault-unseal:/vault/state/init.json ./vault-init.json
 cat vault-init.json
 # 1. paste the JSON into a password manager (1Password / Bitwarden / Vaultwarden)
 # 2. delete the local copy:
 shred -u vault-init.json
 ```
+
+> If `vault-unseal` isn't up for some reason, read the volume directly instead
+> (works regardless of what's running — adjust the `edc-docker_` prefix if you
+> cloned into a differently-named directory):
+>
+> ```bash
+> docker run --rm -v edc-docker_vault-state:/state:ro alpine \
+>     cat /state/init.json > vault-init.json
+> ```
 
 If you skip this step and you ever lose the host volume, the data in vault is **unrecoverable**.
 
