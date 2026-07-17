@@ -112,6 +112,15 @@ Only `EDC_IAM_TRUSTED-ISSUER_0-*` is configured. To support multiple issuers (e.
 
 EDC 0.12.0 dropped DSP version `2024/1`. It supports `2025/1` and the in-progress `0.8`. Peers still on 0.10.x or earlier may be unable to negotiate — verify the DSP version with each target operator before assuming.
 
+### EDR token refresh — not functional
+
+EDRs issued by this stack advertise a refresh endpoint, but refreshing does not work, twice over (verified 2026-07-17):
+
+- `tx.edc.dataplane.token.refresh.endpoint` is not configured, so the EDR's `tx-auth:refreshEndpoint` falls back to `http://controlplane:8081/` — a compose-internal hostname no consumer can reach.
+- Refresh requests are authenticated with a JWT whose `kid` the counterparty resolves through the DID document; this stack signs with the local vault alias (`token-signer-key`) as `kid`, which no DID resolver can look up.
+
+Practical impact: an EDR's access token is valid for 300 seconds and cannot be renewed in place. Transfers that outlive it must open a new transfer process on the same contract agreement (cheap — a couple of seconds). A proper fix needs a publicly routed refresh endpoint plus a DID-URL-shaped vault alias for the signer key.
+
 ### No Postgres connection pooling
 
 Direct JDBC, no PgBouncer. Fine for low-to-moderate transfer rates; revisit if you saturate connections.

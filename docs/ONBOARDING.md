@@ -39,12 +39,23 @@ Caddy in this stack will issue the certificate for `<your-public-host>` automati
   - peer EDCs you want to talk to (DSP)
 - [ ] At least 4 GiB of free RAM and 10 GiB of disk on the host.
 
-### 1.2 Generate the data-plane signer keypair
+### 1.2 Data-plane signer key
 
-The data-plane signs proxy tokens with this key. The **private** half stays
-on this host (in vault, populated from `.env`). The **public** half goes
-into your DID document at the operator. Generate both halves locally —
-the private key never leaves the host:
+The data-plane signs proxy tokens with an Ed25519 key. The **private**
+half lives on this host (in vault, populated from `.env`); the **public**
+half is published in your DID document at the operator.
+
+**Hanka flow: nothing to generate here.** The Hanka portal mints this
+keypair for you during registration (§1.3.a): the one-time bundle
+includes the private JWK as `TOKEN_SIGNER_KEY_JWK`, ready to paste into
+`.env`, and Hanka publishes the public half in your DID document
+automatically. Hanka does **not** store the private half — the bundle is
+the only time you'll ever see it, so save it immediately. Skip straight
+to §1.3.
+
+**Bring-your-own-key** (optional with Hanka, required for operators
+without a self-service portal): generate both halves locally — the
+private key then never leaves this host:
 
 ```bash
 # 1. Ed25519 private key in PEM
@@ -70,13 +81,16 @@ PY
 Take note of:
 
 - The **PRIVATE** JWK — you'll paste it in `.env` as `TOKEN_SIGNER_KEY_JWK`.
-- The **PUBLIC** JWK — you'll paste it into the operator's portal.
+- The **PUBLIC** JWK — hand it to your operator. With Hanka this path is
+  API-only (the portal UI no longer collects key material): register via
+  `POST /api/v1/dataspaces/services/edc/connectors/external` and include
+  the optional `signer_public_jwk` field. For other operators see §1.3.b.
 
-When pasting the public JWK make sure it has a `kid` field. If the recipe
-above didn't set one, add it manually using the convention
-`<your-DID>#data-plane` (you'll know your DID after registering; for the
-first registration you can use `<your-host>#data-plane` as a placeholder
-and edit the `kid` to match once Hanka has assigned your DID).
+When sharing the public JWK make sure it has a `kid` field using the
+convention `<your-DID>#data-plane` (you'll know your DID after
+registering; for the first registration you can use
+`<your-host>#data-plane` as a placeholder and edit the `kid` to match
+once the operator has assigned your DID).
 
 After you've captured both halves, shred the PEM:
 
@@ -95,15 +109,17 @@ custom installs) still use the manual exchange described in §1.3.b.
 1. Sign in to the Hanka portal and open **Services → EDC → Connectors**
    (or the empty-state choice screen on first use).
 2. Pick **Company-managed**.
-3. Fill the form:
+3. Fill the form — two fields only:
    - **Name** — anything readable (e.g. `edc-docker (Tailscale)`).
-   - **Public host** — the hostname only, no scheme, no path. Hanka
-     derives the DSP and data-plane URLs from it.
-   - **Location** — optional label (e.g. `DE / on-prem`).
-   - **Data-plane signer public JWK** — paste the PUBLIC JWK from §1.2.
-4. Submit. Hanka returns a one-time bundle with everything your `.env`
-   needs and synchronously publishes the public JWK in your DID document.
-   The `STS_CLIENT_SECRET` is shown only here — copy it now.
+   - **Public host** — your connector's public hostname. Pasting a full
+     URL is fine; the form strips the scheme and path. Hanka derives the
+     DSP and data-plane URLs from it.
+4. Submit. Hanka generates the data-plane signer keypair, publishes the
+   public half in your DID document, and returns a one-time bundle with
+   everything your `.env` needs — including the private
+   `TOKEN_SIGNER_KEY_JWK`. Save the bundle now: the `STS_CLIENT_SECRET`
+   can be recovered later from the connector detail page, but the signer
+   key is shown **exactly once** (Hanka keeps only the public half).
 
 Each row in the post-registration table maps 1:1 to an `.env` key, and
 the right-hand pane gives you the same content as a paste-ready
@@ -122,6 +138,7 @@ the right-hand pane gives you the same content as a paste-ready
 | Credential service URL | `CREDENTIAL_SERVICE_URL` | `https://identityhub.hanka.ai/api/credentials/v1/participants/<base64 BPN, no padding>`. |
 | BDRS directory URL | `BDRS_URL` | `https://bdrs.hanka.ai/api/directory`. |
 | Trusted-issuer DID | `TRUSTED_ISSUER_DID` | `did:web:identityhub.hanka.ai:BPNL00000003CRHK`. |
+| Data-plane signer key | `TOKEN_SIGNER_KEY_JWK` | Private Ed25519 JWK. Shown exactly once — Hanka stores only the public half. |
 
 Verify your data-plane key is published in the DID document before
 bringing up the stack:
