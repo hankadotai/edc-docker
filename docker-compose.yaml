@@ -289,6 +289,14 @@ services:
             WEB_HTTP_PUBLIC_PATH: "/api/public"
             WEB_HTTP_CONTROL_PORT: "8083"
             WEB_HTTP_CONTROL_PATH: "/api/dataplane/control"
+            # Self-registration advertises the control API at this URL. Without
+            # it the EDC derives the URL from ``edc.hostname`` — which is
+            # "controlplane" in this stack — so the selector's availability
+            # probe dials the wrong container, every registered instance flips
+            # to UNAVAILABLE ~5 minutes later, and transfers fail with
+            # "No dataplane found". (Diagnosed 2026-07-17 on a live deploy
+            # that had accumulated 78 UNAVAILABLE zombie registrations.)
+            EDC_CONTROL_ENDPOINT: "http://dataplane:8083/api/dataplane/control"
             WEB_HTTP_VERSION_PORT: "8084"
             WEB_HTTP_VERSION_PATH: "/.well-known/api"
 
