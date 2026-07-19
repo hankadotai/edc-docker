@@ -83,12 +83,17 @@ No Prometheus exporter, no log shipping, no distributed tracing. The EDC writes 
 
 ### No secret rotation automation
 
-`STS_CLIENT_SECRET` and `TOKEN_SIGNER_KEY_JWK` live in `.env`. Rotating them means:
+The `STS_CLIENT_SECRET` lives in `.env`. Rotating it means:
 
-1. Get a new STS secret from the operator (or generate a new keypair).
+1. Get a new STS secret from the operator.
 2. Edit `.env`.
-3. `./scripts/up.sh` (this re-runs `vault-init` which re-writes the secrets in vault).
-4. For the token-signer keypair: send the new public JWK to the operator and wait for them to update your DID document **before** restarting the EDC.
+3. `./scripts/up.sh` (this re-runs `vault-init` which re-writes the secret in vault).
+
+The data-plane signer key is generated and held locally in vault, so
+rotating it is a host-only operation with no operator coordination:
+`vault kv delete secret/token-signer-key` then `./scripts/up.sh` mints a
+fresh one (or paste a new `TOKEN_SIGNER_KEY_JWK` and re-run). Nothing
+outside this host references it, so no DID-document update is needed.
 
 ### No CI / no tests
 
@@ -112,14 +117,13 @@ Only `EDC_IAM_TRUSTED-ISSUER_0-*` is configured. To support multiple issuers (e.
 
 EDC 0.12.0 dropped DSP version `2024/1`. It supports `2025/1` and the in-progress `0.8`. Peers still on 0.10.x or earlier may be unable to negotiate — verify the DSP version with each target operator before assuming.
 
-### EDR token refresh — not functional
+### EDR token refresh
 
-EDRs issued by this stack advertise a refresh endpoint, but refreshing does not work, twice over (verified 2026-07-17):
+EDR access tokens are valid for 300 seconds (`tx.edc.dataplane.token.expiry`, left at the upstream default). This stack sets `tx.edc.dataplane.token.refresh.endpoint` to your public data-plane URL (`EDC_DATAPLANE_PUBLIC_URL`), so peers can renew a token in place instead of re-negotiating.
 
-- `tx.edc.dataplane.token.refresh.endpoint` is not configured, so the EDR's `tx-auth:refreshEndpoint` falls back to `http://controlplane:8081/` — a compose-internal hostname no consumer can reach.
-- Refresh requests are authenticated with a JWT whose `kid` the counterparty resolves through the DID document; this stack signs with the local vault alias (`token-signer-key`) as `kid`, which no DID resolver can look up.
+How refresh authenticates, so it's clear no signer key needs publishing: the consumer's refresh request carries a JWT signed by **its own STS** (the Identity Hub OAuth client this stack is already configured with), whose `kid` is the consumer's DID `#key-1` — already published in its DID document. The provider resolves that DID + kid to verify it. The data-plane signer key (`token-signer-key`) is used only to sign the EDR *access* token, which the issuer verifies locally; it plays no part in refresh. (An earlier note here claimed refresh signed with the local vault alias as `kid` — that conflated the access token's kid with the refresh authentication JWT's kid.)
 
-Practical impact: an EDR's access token is valid for 300 seconds and cannot be renewed in place. Transfers that outlive it must open a new transfer process on the same contract agreement (cheap — a couple of seconds). A proper fix needs a publicly routed refresh endpoint plus a DID-URL-shaped vault alias for the signer key.
+> Historical: before this endpoint was configured, `tx-auth:refreshEndpoint` fell back to the compose-internal `http://controlplane:8081/`, unreachable from any peer, so refresh silently failed and transfers outliving 300 s had to open a fresh transfer process on the same contract agreement.
 
 ### No Postgres connection pooling
 

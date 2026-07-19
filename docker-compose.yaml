@@ -303,6 +303,14 @@ services:
             EDC_DATAPLANE_API_PUBLIC_BASEURL: "${EDC_DATAPLANE_PUBLIC_URL}"
             EDC_TRANSFER_PROXY_TOKEN_SIGNER_PRIVATEKEY_ALIAS: "token-signer-key"
             EDC_TRANSFER_PROXY_TOKEN_VERIFIER_PUBLICKEY_ALIAS: "token-signer-key"
+            # EDR access tokens live 300s. This is the PUBLIC URL peers dial to
+            # refresh them in place; without it the endpoint defaults to the
+            # compose-internal "controlplane" hostname and refresh is dead, so
+            # transfers outliving the token would need a fresh negotiation. The
+            # consumer appends "/token"; the refresh auth JWT it sends is signed
+            # by its IH STS (kid = its DID #key-1, resolvable in did.json), so
+            # no data-plane key is involved. (tx.edc.dataplane.token.refresh.endpoint)
+            TX_EDC_DATAPLANE_TOKEN_REFRESH_ENDPOINT: "${EDC_DATAPLANE_PUBLIC_URL}"
             EDC_DPF_SELECTOR_URL: "http://controlplane:8083/control/v1/dataplanes"
 
             EDC_DATASOURCE_DEFAULT_URL: "jdbc:postgresql://postgres:5432/edc"

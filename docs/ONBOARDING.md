@@ -41,62 +41,44 @@ Caddy in this stack will issue the certificate for `<your-public-host>` automati
 
 ### 1.2 Data-plane signer key
 
-The data-plane signs proxy tokens with an Ed25519 key. The **private**
-half lives on this host (in vault, populated from `.env`); the **public**
-half is published in your DID document at the operator.
+The data-plane signs the EDR/proxy tokens it issues with an Ed25519 key
+and verifies them itself — nothing outside this host ever needs it. So
+there is **nothing to obtain from your operator and nothing to generate
+by hand**: on first boot this stack mints the keypair locally and stores
+it in vault (leave `TOKEN_SIGNER_KEY_JWK` empty). This matches how
+managed-wallet dataspaces work — Cofinity-X never hands out a signer key
+either. Skip straight to §1.3.
 
-**Hanka flow: nothing to generate here.** The Hanka portal mints this
-keypair for you during registration (§1.3.a): the one-time bundle
-includes the private JWK as `TOKEN_SIGNER_KEY_JWK`, ready to paste into
-`.env`, and Hanka publishes the public half in your DID document
-automatically. Hanka does **not** store the private half — the bundle is
-the only time you'll ever see it, so save it immediately. Skip straight
-to §1.3.
+> The private key stays on this host for its whole life. It is generated
+> once and persists in the `vault-data` volume across restarts, so back
+> that volume up (§3.3) if you want to keep the same key after a host loss.
 
-**Bring-your-own-key** (optional with Hanka, required for operators
-without a self-service portal): generate both halves locally — the
-private key then never leaves this host:
+**Bring-your-own-key** (fully optional): if you'd rather supply your own
+key, generate one locally and paste the **private** JWK into `.env` as
+`TOKEN_SIGNER_KEY_JWK` — the stack will use it instead of generating one:
 
 ```bash
 # 1. Ed25519 private key in PEM
 openssl genpkey -algorithm ed25519 -out signer.pem
 
-# 2. Convert to JWK (private + public)
+# 2. Convert to a private JWK
 docker run --rm -v "$PWD:/work" -w /work python:3.12-slim sh -c '
     pip install -q jwcrypto >/dev/null
     python3 - <<PY
 import json
 from jwcrypto import jwk
 k = jwk.JWK.from_pem(open("signer.pem","rb").read())
-priv = json.loads(k.export(private_key=True))
-pub  = json.loads(k.export(private_key=False))
-# Force a kid so the operator can wire the verificationMethod predictably.
-# Use any stable label; "#data-plane" is the convention used by Hanka.
-print("PRIVATE:", json.dumps(priv))
-print("PUBLIC :", json.dumps(pub))
+print(k.export(private_key=True))
 PY
 '
+shred -u signer.pem   # once you have captured the JWK
 ```
 
-Take note of:
-
-- The **PRIVATE** JWK — you'll paste it in `.env` as `TOKEN_SIGNER_KEY_JWK`.
-- The **PUBLIC** JWK — hand it to your operator. With Hanka this path is
-  API-only (the portal UI no longer collects key material): register via
-  `POST /api/v1/dataspaces/services/edc/connectors/external` and include
-  the optional `signer_public_jwk` field. For other operators see §1.3.b.
-
-When sharing the public JWK make sure it has a `kid` field using the
-convention `<your-DID>#data-plane` (you'll know your DID after
-registering; for the first registration you can use
-`<your-host>#data-plane` as a placeholder and edit the `kid` to match
-once the operator has assigned your DID).
-
-After you've captured both halves, shred the PEM:
-
-```bash
-shred -u signer.pem
-```
+Publishing the public half in your DID document is **not required** for
+transfers to work. If you want it there anyway (e.g. for your own
+tooling), Hanka accepts the public JWK via the API-only `signer_public_jwk`
+field on `POST /api/v1/dataspaces/services/edc/connectors/external`; give
+it a `kid` of `<your-DID>#data-plane`.
 
 ### 1.3 Register your connector with the dataspace operator
 
@@ -114,12 +96,11 @@ custom installs) still use the manual exchange described in §1.3.b.
    - **Public host** — your connector's public hostname. Pasting a full
      URL is fine; the form strips the scheme and path. Hanka derives the
      DSP and data-plane URLs from it.
-4. Submit. Hanka generates the data-plane signer keypair, publishes the
-   public half in your DID document, and returns a one-time bundle with
-   everything your `.env` needs — including the private
-   `TOKEN_SIGNER_KEY_JWK`. Save the bundle now: the `STS_CLIENT_SECRET`
-   can be recovered later from the connector detail page, but the signer
-   key is shown **exactly once** (Hanka keeps only the public half).
+4. Submit. Hanka returns a one-time bundle with everything your `.env`
+   needs: your wallet identity and the operator endpoints. No signer key
+   is handed over — your connector generates its own locally on first
+   boot. Save the bundle now; the `STS_CLIENT_SECRET` can also be
+   recovered later from the connector detail page.
 
 Each row in the post-registration table maps 1:1 to an `.env` key, and
 the right-hand pane gives you the same content as a paste-ready
@@ -138,16 +119,16 @@ the right-hand pane gives you the same content as a paste-ready
 | Credential service URL | `CREDENTIAL_SERVICE_URL` | `https://identityhub.hanka.ai/api/credentials/v1/participants/<base64 BPN, no padding>`. |
 | BDRS directory URL | `BDRS_URL` | `https://bdrs.hanka.ai/api/directory`. |
 | Trusted-issuer DID | `TRUSTED_ISSUER_DID` | `did:web:identityhub.hanka.ai:BPNL00000003CRHK`. |
-| Data-plane signer key | `TOKEN_SIGNER_KEY_JWK` | Private Ed25519 JWK. Shown exactly once — Hanka stores only the public half. |
 
-Verify your data-plane key is published in the DID document before
-bringing up the stack:
+Leave `TOKEN_SIGNER_KEY_JWK` empty — the stack generates the data-plane
+signer key locally on first boot. Your DID document is published by Hanka
+and already carries the `#key-1` verification method your connector needs;
+you can confirm it resolves with:
 
 ```bash
 curl -sS https://identityhub.hanka.ai/<your-BPN>/did.json \
     | jq '.verificationMethod[] | .id'
-# Expect at least two entries: <DID>#key-1 (Hanka-managed STS key)
-# and the kid from the JWK you pasted (e.g. <DID>#data-plane).
+# Expect at least <DID>#key-1 (the Hanka-managed STS/identity key).
 ```
 
 Hanka also automatically issues a `MembershipCredential`, `BpnCredential`
@@ -159,16 +140,15 @@ onboarding pipeline — no manual step required.
 If you target a Tractus-X operator without a self-service portal you
 follow the old exchange:
 
-- Send the operator your DSP URL (`https://<your-public-host>/api/v1/dsp`),
-  data-plane URL (`https://<your-public-host>/api/public`) and the PUBLIC
-  JWK from §1.2.
-- The operator replies with the eight values from the table above (minus
+- Send the operator your DSP URL (`https://<your-public-host>/api/v1/dsp`)
+  and data-plane URL (`https://<your-public-host>/api/public`). You do
+  **not** need to send any signer key — the stack generates it locally.
+- The operator replies with the wallet values from the table above (minus
   the three derived URLs you already know).
-- The operator must also confirm two things before the connector will work:
-  1. Your token-signer public key is published in your DID document.
-     Check with `curl https://<their-host>/<your-BPN>/did.json | jq`.
-  2. A `MembershipCredential` (and ideally a
-     `DataExchangeGovernanceCredential`) has been issued to your holder.
+- The operator must also confirm that a `MembershipCredential` (and
+  ideally a `DataExchangeGovernanceCredential`) has been issued to your
+  holder, and that your DID document resolves with its identity key
+  (`curl https://<their-host>/<your-BPN>/did.json | jq`).
 
 For Hanka, the operator endpoints are already filled in
 `presets/hanka.env.example`. For other dataspaces, ask the operator for
@@ -350,9 +330,12 @@ docker run --rm \
    ```
 4. Restore vault state from `vault-init.json` is **not possible** in this stack — vault keeps its raft state on the host. After a host loss you have to:
    - bring up an empty vault (`docker compose up -d vault`),
-   - re-run `docker compose run --rm vault-init` (initialises a NEW vault, prints NEW unseal keys),
-   - hand the dataspace operator a NEW token-signer public key (the new vault generates a new one), and
-   - have the operator update your DID document with the new key.
+   - re-run `docker compose run --rm vault-init` (initialises a NEW vault, prints NEW unseal keys, and mints a NEW data-plane signer key).
+
+   The new signer key is transparent to peers: it signs only the EDR
+   tokens this connector issues and verifies them itself, so no operator
+   coordination or DID-document update is needed. Your wallet identity and
+   STS secret come from `.env`, not vault, so they survive untouched.
 
 This is the single most painful failure mode. Mitigation: snapshot the `vault-data` volume regularly the same way you snapshot postgres.
 

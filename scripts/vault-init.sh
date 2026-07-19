@@ -51,6 +51,20 @@ wait_for_vault() {
     done
 }
 
+# Generate an Ed25519 keypair and emit it as a compact private JWK. The EDC
+# signs its data-plane tokens with the vault ALIAS ("token-signer-key") as the
+# kid, so the JWK's own kid is cosmetic; we set it for readability. The
+# PKCS#8 / SPKI DER wrappers for Ed25519 are fixed-length, so the raw 32-byte
+# keys are the trailing 32 bytes of each DER encoding.
+generate_ed25519_jwk() {
+    _tmp="$(mktemp)"
+    openssl genpkey -algorithm ed25519 -out "${_tmp}" 2>/dev/null
+    _d="$(openssl pkey -in "${_tmp}" -outform DER 2>/dev/null | tail -c 32 | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
+    _x="$(openssl pkey -in "${_tmp}" -pubout -outform DER 2>/dev/null | tail -c 32 | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
+    rm -f "${_tmp}"
+    printf '{"kty":"OKP","crv":"Ed25519","kid":"token-signer-key","x":"%s","d":"%s"}' "${_x}" "${_d}"
+}
+
 wait_for_vault
 
 INITIALIZED="$(vault status -format=json 2>/dev/null | jq -r .initialized)"
@@ -122,11 +136,25 @@ else
     echo "WARNING: STS_CLIENT_SECRET is empty in environment, skipping" >&2
 fi
 
+# Data-plane signer key. The connector's data plane signs the EDR/proxy
+# tokens it issues and verifies them itself, so nothing outside this host ever
+# needs the key: we generate it locally and never share it (parity with
+# managed-wallet dataspaces like Cofinity-X). Precedence:
+#   1. operator-provided TOKEN_SIGNER_KEY_JWK        (bring-your-own-key)
+#   2. a key already stored in vault from a prior boot (keep it stable)
+#   3. otherwise generate a fresh Ed25519 keypair here, once
 if [ -n "${TOKEN_SIGNER_KEY_JWK:-}" ]; then
-    echo "=== Writing secret/token-signer-key ==="
+    echo "=== Writing secret/token-signer-key (operator-provided) ==="
     vault kv put secret/token-signer-key content="${TOKEN_SIGNER_KEY_JWK}" > /dev/null
+elif vault kv get -field=content secret/token-signer-key >/dev/null 2>&1; then
+    echo "=== Data-plane signer key already in vault, keeping it ==="
 else
-    echo "WARNING: TOKEN_SIGNER_KEY_JWK is empty in environment, skipping" >&2
+    echo "=== Generating data-plane signer key (Ed25519) ==="
+    if ! command -v openssl >/dev/null 2>&1; then
+        apk add --no-cache openssl >/dev/null
+    fi
+    SIGNER_JWK="$(generate_ed25519_jwk)"
+    vault kv put secret/token-signer-key content="${SIGNER_JWK}" > /dev/null
 fi
 
 # Mint or rotate the EDC token.

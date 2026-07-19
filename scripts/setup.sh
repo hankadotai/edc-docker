@@ -77,7 +77,9 @@ Next steps:
        EDC_PUBLIC_HOST, ACME_EMAIL,
        EDC_DSP_CALLBACK_ADDRESS, EDC_DATAPLANE_PUBLIC_URL,
        STS_TOKEN_URL, CREDENTIAL_SERVICE_URL, BDRS_URL, TRUSTED_ISSUER_DID,
-       STS_CLIENT_SECRET, TOKEN_SIGNER_KEY_JWK
+       STS_CLIENT_SECRET
+     (the data-plane signer key is generated locally on first boot — leave
+      TOKEN_SIGNER_KEY_JWK empty unless you're bringing your own key)
   2. First time only — bootstrap vault and back up the unseal keys:
        docker compose up -d --wait vault
        docker compose run --rm vault-init
