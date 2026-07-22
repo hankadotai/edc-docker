@@ -20,6 +20,13 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
+# Fail fast on an incomplete .env — a missing value here otherwise surfaces
+# minutes later as an opaque Java stack trace.
+if ! sh scripts/check.sh --env; then
+    echo "==> .env is not ready (see above). Fix it and re-run." >&2
+    exit 1
+fi
+
 echo "==> Phase 1: vault + vault-init (refresh token)"
 docker compose up -d --wait vault
 docker compose run --rm vault-init

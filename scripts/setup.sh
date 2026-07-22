@@ -72,22 +72,17 @@ cat <<EOF
   - fresh UUID for EDC_PARTICIPANT_CONTEXT_ID
 
 Next steps:
-  1. Edit .env and fill in the values your dataspace operator gave you:
-       EDC_BPN, EDC_DID,
-       EDC_PUBLIC_HOST, ACME_EMAIL,
-       EDC_DSP_CALLBACK_ADDRESS, EDC_DATAPLANE_PUBLIC_URL,
-       STS_TOKEN_URL, CREDENTIAL_SERVICE_URL, BDRS_URL, TRUSTED_ISSUER_DID,
-       STS_CLIENT_SECRET
-     (the data-plane signer key is generated locally on first boot — leave
-      TOKEN_SIGNER_KEY_JWK empty unless you're bringing your own key)
-  2. First time only — bootstrap vault and back up the unseal keys:
-       docker compose up -d --wait vault
-       docker compose run --rm vault-init
-       docker compose up -d vault-unseal
+  1. Edit .env and fill in every empty value (your operator provides them;
+     with Hanka they come from the portal registration bundle):
+       \$EDITOR .env
+  2. Bring up the stack — bootstraps and unseals vault automatically
+     (use this every time, not plain docker compose up):
+       ./scripts/up.sh
+  3. First time only — back up the vault unseal keys:
        docker compose cp vault-unseal:/vault/state/init.json ./vault-init.json
        # *** copy vault-init.json into a password manager / encrypted backup ***
        shred -u vault-init.json
-  3. Bring up the stack (use this every time, not plain docker compose up):
-       ./scripts/up.sh
+  4. Verify the deployment end to end:
+       ./scripts/check.sh
 
 EOF
