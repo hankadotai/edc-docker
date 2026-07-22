@@ -77,6 +77,33 @@ docker compose down                  # stop, keep volumes
 
 `scripts/up.sh` exists because Compose reads `env_file` once at the start of `up`, before any container runs — so a plain `docker compose up -d` on a cold start would launch the EDC services with no vault token. The wrapper does it in two phases. See [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) for the full reasoning.
 
+## Versioning & upgrades
+
+Releases follow [semantic versioning](https://semver.org/), and the version
+number is a promise about what **you** have to do to upgrade:
+
+| Bump | What it means for you |
+|---|---|
+| **PATCH** (1.0.x) | `git pull && ./scripts/up.sh` — nothing else. Fixes and security bumps. |
+| **MINOR** (1.x.0) | Same — new optional capabilities, existing behavior unchanged. |
+| **MAJOR** (x.0.0) | Read the **Upgrade notes** in the [CHANGELOG](CHANGELOG.md) first — something requires action on your side (an `.env` change, a migration step). |
+
+For production, deploy from a release tag rather than `main`:
+
+```bash
+git clone --branch v1.0.0 https://github.com/hankadotai/edc-docker.git
+
+# upgrading later:
+git fetch --tags
+git checkout vX.Y.Z
+./scripts/up.sh
+./scripts/check.sh
+```
+
+What changed in each release: [CHANGELOG.md](CHANGELOG.md). Only the latest
+release is supported. Maintainers: the release procedure lives in
+[`docs/RELEASING.md`](docs/RELEASING.md).
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).

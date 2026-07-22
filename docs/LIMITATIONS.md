@@ -95,9 +95,14 @@ rotating it is a host-only operation with no operator coordination:
 fresh one (or paste a new `TOKEN_SIGNER_KEY_JWK` and re-run). Nothing
 outside this host references it, so no DID-document update is needed.
 
-### No CI / no tests
+### No integration tests
 
-The repo ships with no CI pipeline, no integration tests, no health probes beyond container-level health checks. Interop with each target dataspace must be verified manually after deployment (see `ONBOARDING.md` §5).
+CI (GitHub Actions) lints the shell scripts and validates that the compose
+file resolves correctly with both minimal and explicit configuration, and
+that `setup.sh` / `check.sh --env` behave. What it does NOT do is spin up
+the stack and talk to a live dataspace — interop with each target dataspace
+must still be verified after deployment, which is exactly what
+`scripts/check.sh` is for (see `ONBOARDING.md` §2.4 and §5).
 
 ## Functional limits
 

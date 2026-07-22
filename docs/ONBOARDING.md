@@ -290,9 +290,14 @@ docker compose down              # stop, keep state
 
 ### 3.1 Updating
 
+Check the [CHANGELOG](../CHANGELOG.md) first: PATCH and MINOR releases need
+nothing beyond the commands below; MAJOR releases carry upgrade notes with
+the required steps.
+
 ```bash
-git pull
-./scripts/up.sh                  # picks up image-tag changes from .env
+git pull                         # or: git fetch --tags && git checkout vX.Y.Z
+./scripts/up.sh
+./scripts/check.sh               # confirm everything still passes
 ```
 
 ### 3.2 Rotating the EDC vault token
