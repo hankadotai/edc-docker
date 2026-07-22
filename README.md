@@ -20,8 +20,6 @@ Operating a Tractus-X EDC end-to-end normally requires running multiple supporti
 | HashiCorp Vault | yes | `hashicorp/vault:1.21.4` | raft storage, scoped EDC token |
 | Dataspace services (identity, directory, credential issuance) | **no** | — | provided by the operator |
 
-For a **full local dataspace** (everything self-contained) for offline experimentation, use the sibling repo [`felipebustillo/tractus-x-docker`](https://github.com/felipebustillo/tractus-x-docker) instead.
-
 ## What you (the developer) own
 
 The repo handles HTTPS, vault, postgres, and the EDC wiring. **Your only job at the network level** is to expose two endpoints publicly:
