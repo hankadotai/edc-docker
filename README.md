@@ -50,7 +50,7 @@ Caddy in this stack will issue the cert automatically as long as `:80` is reacha
 ## TL;DR
 
 ```bash
-git clone https://github.com/felipebustillo/edc-docker.git
+git clone https://github.com/hankadotai/edc-docker.git
 cd edc-docker
 
 ./scripts/setup.sh                             # defaults to the Hanka preset

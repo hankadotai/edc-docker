@@ -162,7 +162,7 @@ them explicitly.
 ### 2.1 Clone and configure
 
 ```bash
-git clone https://github.com/felipebustillo/edc-docker.git
+git clone https://github.com/hankadotai/edc-docker.git
 cd edc-docker
 
 # Generate .env from the right preset. This:
