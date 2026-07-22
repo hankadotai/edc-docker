@@ -39,22 +39,20 @@ Caddy in this stack will issue the certificate for `<your-public-host>` automati
   - peer EDCs you want to talk to (DSP)
 - [ ] At least 4 GiB of free RAM and 10 GiB of disk on the host.
 
-### 1.2 Data-plane signer key
+### 1.2 Data-plane signer key — nothing to do
 
 The data-plane signs the EDR/proxy tokens it issues with an Ed25519 key
-and verifies them itself — nothing outside this host ever needs it. So
-there is **nothing to obtain from your operator and nothing to generate
-by hand**: on first boot this stack mints the keypair locally and stores
-it in vault (leave `TOKEN_SIGNER_KEY_JWK` empty). This matches how
-managed-wallet dataspaces work — Cofinity-X never hands out a signer key
-either. Skip straight to §1.3.
+and verifies them itself — nothing outside this host ever needs it. On
+first boot the stack mints the keypair locally and stores it in vault
+(leave `TOKEN_SIGNER_KEY_JWK` empty), the same model as managed-wallet
+dataspaces like Cofinity-X. The key persists in the `vault-data` volume
+across restarts; back that volume up (§3.3) if you want to keep the same
+key after a host loss.
 
-> The private key stays on this host for its whole life. It is generated
-> once and persists in the `vault-data` volume across restarts, so back
-> that volume up (§3.3) if you want to keep the same key after a host loss.
+<details>
+<summary><b>Bring-your-own-key</b> (fully optional — skip unless you have a reason)</summary>
 
-**Bring-your-own-key** (fully optional): if you'd rather supply your own
-key, generate one locally and paste the **private** JWK into `.env` as
+Generate a key locally and paste the **private** JWK into `.env` as
 `TOKEN_SIGNER_KEY_JWK` — the stack will use it instead of generating one:
 
 ```bash
@@ -79,6 +77,8 @@ transfers to work. If you want it there anyway (e.g. for your own
 tooling), Hanka accepts the public JWK via the API-only `signer_public_jwk`
 field on `POST /api/v1/dataspaces/services/edc/connectors/external`; give
 it a `kid` of `<your-DID>#data-plane`.
+
+</details>
 
 ### 1.3 Register your connector with the dataspace operator
 
