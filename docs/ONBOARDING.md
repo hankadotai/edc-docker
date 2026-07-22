@@ -102,9 +102,10 @@ custom installs) still use the manual exchange described in §1.3.b.
    boot. Save the bundle now; the `STS_CLIENT_SECRET` can also be
    recovered later from the connector detail page.
 
-Each row in the post-registration table maps 1:1 to an `.env` key, and
-the right-hand pane gives you the same content as a paste-ready
-`.env` block.
+Rows with an `.env` key in the post-registration table map straight into
+your `.env` (the ones marked *derived* are computed automatically and
+need no entry), and the right-hand pane gives you the same content as a
+paste-ready `.env` block.
 
 | Value (portal label) | `.env` key | Notes |
 |---|---|---|
@@ -312,7 +313,7 @@ Three things must be backed up off-host:
 
 | What | Where | When |
 |---|---|---|
-| `vault-init.json` (unseal keys + root) | password manager | once, after §2.2 |
+| `vault-init.json` (unseal keys + root) | password manager | once, in §2.3 |
 | `.env` | password manager / encrypted file | whenever it changes |
 | Postgres data | snapshot script (below) | daily / weekly |
 
