@@ -12,11 +12,10 @@
 # Bootstrap (one time):
 #   ./scripts/setup.sh hanka            # generate .env from preset
 #   <edit .env>
-#   docker compose up -d --wait vault
-#   docker compose run --rm vault-init
-#   docker compose cp vault-init:/vault/state/init.json ./vault-init.json
-#   # back up vault-init.json off-host, then delete it locally
-#   ./scripts/up.sh
+#   ./scripts/up.sh                     # bootstraps + unseals vault, starts all
+#   docker compose cp vault-unseal:/vault/state/init.json ./vault-init.json
+#   # back up vault-init.json off-host, then: shred -u vault-init.json
+#   ./scripts/check.sh                  # verify env, vault, APIs, STS
 #
 # Day-to-day:
 #   ./scripts/up.sh                     # safe in any state (cold/warm/post-restart)
@@ -63,13 +62,13 @@ services:
         image: postgres:17.9-alpine
         restart: unless-stopped
         environment:
-            POSTGRES_USER: ${POSTGRES_USER}
+            POSTGRES_USER: ${POSTGRES_USER:-edc}
             POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
             POSTGRES_DB: edc
         volumes:
             - postgres-data:/var/lib/postgresql/data
         healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-edc}"]
             interval: 5s
             timeout: 3s
             retries: 10
@@ -121,7 +120,7 @@ services:
         environment:
             VAULT_ADDR: "http://vault:8200"
             STS_CLIENT_SECRET: "${STS_CLIENT_SECRET}"
-            TOKEN_SIGNER_KEY_JWK: "${TOKEN_SIGNER_KEY_JWK}"
+            TOKEN_SIGNER_KEY_JWK: "${TOKEN_SIGNER_KEY_JWK:-}"
             EDC_TOKEN_PERIOD: "${EDC_TOKEN_PERIOD:-720h}"
         volumes:
             - vault-state:/vault/state
@@ -164,7 +163,7 @@ services:
 
     # --- EDC control-plane ---------------------------------------------------
     controlplane:
-        image: tractusx/edc-controlplane-postgresql-hashicorp-vault:${EDC_VERSION}
+        image: tractusx/edc-controlplane-postgresql-hashicorp-vault:${EDC_VERSION:-0.12.0}
         restart: unless-stopped
         volumes:
             - ./config/edc-logging.properties:/app/logging.properties:ro
@@ -209,7 +208,9 @@ services:
             # cannot be expressed as an environment variable.
 
             # --- DSP callback (HTTPS, advertised to peers) ---
-            EDC_DSP_CALLBACK_ADDRESS: "${EDC_DSP_CALLBACK_ADDRESS}"
+            # Derived from EDC_PUBLIC_HOST; set EDC_DSP_CALLBACK_ADDRESS in
+            # .env only if your edge routes DSP somewhere non-standard.
+            EDC_DSP_CALLBACK_ADDRESS: "${EDC_DSP_CALLBACK_ADDRESS:-https://${EDC_PUBLIC_HOST}/api/v1/dsp}"
 
             # --- BDRS ---
             TX_EDC_IAM_IATP_BDRS_SERVER_URL: "${BDRS_URL}"
@@ -239,7 +240,7 @@ services:
 
             # --- Database ---
             EDC_DATASOURCE_DEFAULT_URL: "jdbc:postgresql://postgres:5432/edc"
-            EDC_DATASOURCE_DEFAULT_USER: "${POSTGRES_USER}"
+            EDC_DATASOURCE_DEFAULT_USER: "${POSTGRES_USER:-edc}"
             EDC_DATASOURCE_DEFAULT_PASSWORD: "${POSTGRES_PASSWORD}"
 
             # --- Vault (URL + secret path; the token comes from env_file) ---
@@ -265,7 +266,7 @@ services:
 
     # --- EDC data-plane ------------------------------------------------------
     dataplane:
-        image: tractusx/edc-dataplane-hashicorp-vault:${EDC_VERSION}
+        image: tractusx/edc-dataplane-hashicorp-vault:${EDC_VERSION:-0.12.0}
         restart: unless-stopped
         env_file:
             - path: ./runtime/edc-vault.env
@@ -300,7 +301,9 @@ services:
             WEB_HTTP_VERSION_PORT: "8084"
             WEB_HTTP_VERSION_PATH: "/.well-known/api"
 
-            EDC_DATAPLANE_API_PUBLIC_BASEURL: "${EDC_DATAPLANE_PUBLIC_URL}"
+            # Derived from EDC_PUBLIC_HOST; set EDC_DATAPLANE_PUBLIC_URL in
+            # .env only if your edge routes the public data plane elsewhere.
+            EDC_DATAPLANE_API_PUBLIC_BASEURL: "${EDC_DATAPLANE_PUBLIC_URL:-https://${EDC_PUBLIC_HOST}/api/public}"
             EDC_TRANSFER_PROXY_TOKEN_SIGNER_PRIVATEKEY_ALIAS: "token-signer-key"
             EDC_TRANSFER_PROXY_TOKEN_VERIFIER_PUBLICKEY_ALIAS: "token-signer-key"
             # EDR access tokens live 300s. This is the PUBLIC URL peers dial to
@@ -310,11 +313,11 @@ services:
             # consumer appends "/token"; the refresh auth JWT it sends is signed
             # by its IH STS (kid = its DID #key-1, resolvable in did.json), so
             # no data-plane key is involved. (tx.edc.dataplane.token.refresh.endpoint)
-            TX_EDC_DATAPLANE_TOKEN_REFRESH_ENDPOINT: "${EDC_DATAPLANE_PUBLIC_URL}"
+            TX_EDC_DATAPLANE_TOKEN_REFRESH_ENDPOINT: "${EDC_DATAPLANE_PUBLIC_URL:-https://${EDC_PUBLIC_HOST}/api/public}"
             EDC_DPF_SELECTOR_URL: "http://controlplane:8083/control/v1/dataplanes"
 
             EDC_DATASOURCE_DEFAULT_URL: "jdbc:postgresql://postgres:5432/edc"
-            EDC_DATASOURCE_DEFAULT_USER: "${POSTGRES_USER}"
+            EDC_DATASOURCE_DEFAULT_USER: "${POSTGRES_USER:-edc}"
             EDC_DATASOURCE_DEFAULT_PASSWORD: "${POSTGRES_PASSWORD}"
 
             EDC_VAULT_HASHICORP_URL: "http://vault:8200"
