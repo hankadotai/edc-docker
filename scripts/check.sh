@@ -17,7 +17,7 @@
 # Exit code: 0 if every executed check passed, 1 otherwise.
 set -u
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 FAILED=0
 

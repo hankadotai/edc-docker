@@ -40,7 +40,7 @@ random32() {
 
 uuid() {
     if command -v uuidgen >/dev/null 2>&1; then
-        uuidgen | tr 'A-Z' 'a-z'
+        uuidgen | tr '[:upper:]' '[:lower:]'
     else
         python3 -c 'import uuid;print(uuid.uuid4())'
     fi

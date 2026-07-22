@@ -1,0 +1,111 @@
+name: ci
+
+# Validates what today's operators depend on: the shell scripts parse and lint
+# clean, setup.sh produces a working skeleton, check.sh's .env validation
+# behaves, and the compose file resolves correctly both with a minimal .env
+# (derived URLs, defaulted tunables) and with explicit overrides.
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+jobs:
+    shell:
+        name: Shell scripts
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: shellcheck
+              run: shellcheck scripts/*.sh
+
+            - name: setup.sh generates a valid skeleton
+              run: |
+                  ./scripts/setup.sh hanka
+                  grep -Eq '^POSTGRES_PASSWORD=.{20,}' .env
+                  grep -Eq '^EDC_API_KEY=.{20,}' .env
+                  grep -Eq '^EDC_PARTICIPANT_CONTEXT_ID=[0-9a-f-]{36}$' .env
+                  rm .env
+
+            - name: check.sh --env accepts a complete .env
+              run: |
+                  cat > .env <<'EOF'
+                  EDC_PUBLIC_HOST=ci.example.com
+                  ACME_EMAIL=ci@example.com
+                  EDC_BPN=BPNL00000000CICI
+                  EDC_DID=did:web:identityhub.example.com:BPNL00000000CICI
+                  EDC_PARTICIPANT_CONTEXT_ID=11111111-2222-3333-4444-555555555555
+                  STS_TOKEN_URL=https://identityhub.example.com/api/sts/token
+                  CREDENTIAL_SERVICE_URL=https://identityhub.example.com/api/credentials/v1/participants/QlBOTA==
+                  BDRS_URL=https://bdrs.example.com/api/directory
+                  TRUSTED_ISSUER_DID=did:web:identityhub.example.com:BPNL0000000ISSUE
+                  STS_CLIENT_SECRET=ci-secret
+                  POSTGRES_PASSWORD=ci-pg
+                  EDC_API_KEY=ci-key
+                  EOF
+                  sh scripts/check.sh --env
+
+            - name: check.sh --env rejects placeholders and empty values
+              run: |
+                  sed -i 's|^CREDENTIAL_SERVICE_URL=.*|CREDENTIAL_SERVICE_URL=https://ih/participants/<BASE64_BPN>|' .env
+                  sed -i 's|^STS_CLIENT_SECRET=.*|STS_CLIENT_SECRET=|' .env
+                  if sh scripts/check.sh --env; then
+                      echo "expected failure, got success" >&2
+                      exit 1
+                  fi
+
+            - name: check.sh --env honours last-duplicate-wins (paste-at-end flow)
+              run: |
+                  {
+                      printf 'CREDENTIAL_SERVICE_URL=https://identityhub.example.com/api/credentials/v1/participants/QlBOTA==\n'
+                      printf 'STS_CLIENT_SECRET=pasted-secret\n'
+                  } >> .env
+                  sh scripts/check.sh --env
+
+            - name: check.sh --env fails without .env
+              run: |
+                  rm .env
+                  if sh scripts/check.sh --env; then
+                      echo "expected failure, got success" >&2
+                      exit 1
+                  fi
+
+    compose:
+        name: Compose config
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: minimal .env resolves — derived URLs, defaulted tunables, no warnings
+              run: |
+                  cat > .env <<'EOF'
+                  EDC_PUBLIC_HOST=ci.example.com
+                  ACME_EMAIL=ci@example.com
+                  EDC_BPN=BPNL00000000CICI
+                  EDC_DID=did:web:identityhub.example.com:BPNL00000000CICI
+                  EDC_PARTICIPANT_CONTEXT_ID=11111111-2222-3333-4444-555555555555
+                  STS_TOKEN_URL=https://identityhub.example.com/api/sts/token
+                  CREDENTIAL_SERVICE_URL=https://identityhub.example.com/api/credentials/v1/participants/QlBOTA==
+                  BDRS_URL=https://bdrs.example.com/api/directory
+                  TRUSTED_ISSUER_DID=did:web:identityhub.example.com:BPNL0000000ISSUE
+                  STS_CLIENT_SECRET=ci-secret
+                  POSTGRES_PASSWORD=ci-pg
+                  EDC_API_KEY=ci-key
+                  EOF
+                  docker compose config > effective.yaml 2> stderr.txt
+                  grep -q 'EDC_DSP_CALLBACK_ADDRESS: https://ci.example.com/api/v1/dsp' effective.yaml
+                  grep -q 'EDC_DATAPLANE_API_PUBLIC_BASEURL: https://ci.example.com/api/public' effective.yaml
+                  grep -q 'TX_EDC_DATAPLANE_TOKEN_REFRESH_ENDPOINT: https://ci.example.com/api/public' effective.yaml
+                  grep -Eq 'image: tractusx/edc-controlplane-postgresql-hashicorp-vault:.+' effective.yaml
+                  grep -Eq 'image: tractusx/edc-dataplane-hashicorp-vault:.+' effective.yaml
+                  grep -q 'POSTGRES_USER: edc' effective.yaml
+                  if grep -iq 'warn' stderr.txt; then
+                      cat stderr.txt >&2
+                      exit 1
+                  fi
+
+            - name: explicit .env values override the derivation
+              run: |
+                  printf 'EDC_DSP_CALLBACK_ADDRESS=https://edge.example.com/dsp\n' >> .env
+                  docker compose config | grep -q 'EDC_DSP_CALLBACK_ADDRESS: https://edge.example.com/dsp'
