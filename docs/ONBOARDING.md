@@ -111,12 +111,12 @@ the right-hand pane gives you the same content as a paste-ready
 | BPN | `EDC_BPN` | Your Business Partner Number, e.g. `BPNL00000003XXXX`. |
 | DID | `EDC_DID` | `did:web:identityhub.hanka.ai:<your-BPN>`. Hanka hosts the `did.json`. |
 | Public host | `EDC_PUBLIC_HOST` | The hostname you typed in the form. |
-| DSP callback | `EDC_DSP_CALLBACK_ADDRESS` | `https://<host>/api/v1/dsp`. |
-| Data-plane public URL | `EDC_DATAPLANE_PUBLIC_URL` | `https://<host>/api/public`. |
+| DSP callback | *(derived)* | `https://<host>/api/v1/dsp` — derived from `EDC_PUBLIC_HOST`; only set `EDC_DSP_CALLBACK_ADDRESS` if your edge routes DSP elsewhere. |
+| Data-plane public URL | *(derived)* | `https://<host>/api/public` — derived from `EDC_PUBLIC_HOST`; only set `EDC_DATAPLANE_PUBLIC_URL` if your edge differs. |
 | STS token URL | `STS_TOKEN_URL` | `https://identityhub.hanka.ai/api/sts/token`. |
-| STS client_id | `EDC_IAM_STS_OAUTH_CLIENT_ID` | **Your DID**, not your BPN. Mismatch shows up later as IH `401 invalid_client`. |
-| STS client_secret | `STS_CLIENT_SECRET` | The OAuth secret. Shown once; persist it now. |
-| Credential service URL | `CREDENTIAL_SERVICE_URL` | `https://identityhub.hanka.ai/api/credentials/v1/participants/<base64 BPN, no padding>`. |
+| STS client_id | *(derived)* | Always **your DID** — the stack derives it from `EDC_DID`; no `.env` key needed. A wrong DID shows up later as IH `401 invalid_client`. |
+| STS client_secret | `STS_CLIENT_SECRET` | The OAuth secret. Persist it now (recoverable from the connector detail page). |
+| Credential service URL | `CREDENTIAL_SERVICE_URL` | `https://identityhub.hanka.ai/api/credentials/v1/participants/<base64 BPN, keep the '=' padding>`. |
 | BDRS directory URL | `BDRS_URL` | `https://bdrs.hanka.ai/api/directory`. |
 | Trusted-issuer DID | `TRUSTED_ISSUER_DID` | `did:web:identityhub.hanka.ai:BPNL00000003CRHK`. |
 
@@ -143,8 +143,8 @@ follow the old exchange:
 - Send the operator your DSP URL (`https://<your-public-host>/api/v1/dsp`)
   and data-plane URL (`https://<your-public-host>/api/public`). You do
   **not** need to send any signer key — the stack generates it locally.
-- The operator replies with the wallet values from the table above (minus
-  the three derived URLs you already know).
+- The operator replies with the wallet values from the table above (the
+  rows marked *derived* are computed from `EDC_PUBLIC_HOST` automatically).
 - The operator must also confirm that a `MembershipCredential` (and
   ideally a `DataExchangeGovernanceCredential`) has been issued to your
   holder, and that your DID document resolves with its identity key
@@ -179,17 +179,9 @@ $EDITOR .env
 ```
 
 For the Hanka flow, paste the `env_block` returned by the portal — every
-value including `EDC_DSP_CALLBACK_ADDRESS`, `EDC_DATAPLANE_PUBLIC_URL` and
-the base64-encoded `CREDENTIAL_SERVICE_URL` is already filled in.
-
-For the manual flow, the operator gives you the eight wallet values and
-you fill the derived URLs yourself:
-
-```bash
-# These are public URLs Caddy will serve:
-EDC_DSP_CALLBACK_ADDRESS=https://<your-public-host>/api/v1/dsp
-EDC_DATAPLANE_PUBLIC_URL=https://<your-public-host>/api/public
-```
+value including the base64-encoded `CREDENTIAL_SERVICE_URL` is already
+filled in. The DSP and data-plane URLs are derived from `EDC_PUBLIC_HOST`
+automatically, so you don't fill those at all.
 
 If `CREDENTIAL_SERVICE_URL` in your preset contains the placeholder
 `<BASE64_BPN>`, replace it with the base64 of your BPN. Keep the `=`
@@ -200,46 +192,17 @@ Hanka's portal emits):
 echo -n "$(grep EDC_BPN .env | cut -d= -f2)" | base64
 ```
 
-### 2.2 Bootstrap vault (one time only)
-
-```bash
-docker compose up -d --wait vault
-docker compose run --rm vault-init
-docker compose up -d vault-unseal
-```
-
-`vault-init` will print a clearly-marked block instructing you to back up the unseal keys + root token. Do it now.
-
-The backup lives at `/vault/state/init.json` inside the `vault-state` volume.
-Copy it out through the long-running **`vault-unseal`** sidecar (it mounts that
-volume). Do **not** copy from `vault-init`: it is a one-shot (`docker compose
-run --rm`) that is removed the instant it exits, so `docker compose cp
-vault-init:...` fails with `no container found for service "vault-init"`.
-
-```bash
-docker compose cp vault-unseal:/vault/state/init.json ./vault-init.json
-cat vault-init.json
-# 1. paste the JSON into a password manager (1Password / Bitwarden / Vaultwarden)
-# 2. delete the local copy:
-shred -u vault-init.json
-```
-
-> If `vault-unseal` isn't up for some reason, read the volume directly instead
-> (works regardless of what's running — adjust the `edc-docker_` prefix if you
-> cloned into a differently-named directory):
->
-> ```bash
-> docker run --rm -v edc-docker_vault-state:/state:ro alpine \
->     cat /state/init.json > vault-init.json
-> ```
-
-If you skip this step and you ever lose the host volume, the data in vault is **unrecoverable**.
-
-### 2.3 Bring up the stack
+### 2.2 Bring up the stack
 
 ```bash
 ./scripts/up.sh
 ```
+
+`up.sh` validates your `.env` first (it fails fast with a list of missing
+values instead of a Java stack trace later), then brings everything up in
+two phases: vault + vault-init first — initialising, unsealing and seeding
+vault, and minting the data-plane signer key on first boot — then the EDC
+services.
 
 > **Don't use plain `docker compose up -d` for the first start.** Compose reads `env_file` once at start, before any container runs; on a cold start `runtime/edc-vault.env` is empty, so the EDC services would launch with no token. `up.sh` does it in two phases — vault-init first (which writes the file), then the rest.
 
@@ -251,28 +214,67 @@ docker compose logs -f controlplane
 
 When you see `Started Hashicorp Vault Token authentication extension` and a steady stream of `org.eclipse.edc.boot.system.runtime.BaseRuntime - edc-controlplane ready`, you're done.
 
-### 2.4 Smoke-test
+### 2.3 Back up the vault unseal keys (one time only)
 
-From the host:
+On first boot, `vault-init` prints a clearly-marked block instructing you to
+back up the unseal keys + root token. Do it now — the backup lives at
+`/vault/state/init.json` inside the `vault-state` volume, and you copy it out
+through the long-running **`vault-unseal`** sidecar (it mounts that volume):
 
 ```bash
-# Management API (localhost only, returns the catalog of your own assets — empty at first).
-# The v3 assets/request body must be a JSON-LD QuerySpec; a bare {} is rejected with HTTP 400.
+docker compose cp vault-unseal:/vault/state/init.json ./vault-init.json
+cat vault-init.json
+# 1. paste the JSON into a password manager (1Password / Bitwarden / Vaultwarden)
+# 2. delete the local copy:
+shred -u vault-init.json
+```
+
+> Copy from `vault-unseal`, **not** from `vault-init` — vault-init is a
+> one-shot that may be gone already. If `vault-unseal` isn't up either, read
+> the volume directly (adjust the `edc-docker_` prefix if you cloned into a
+> differently-named directory):
+>
+> ```bash
+> docker run --rm -v edc-docker_vault-state:/state:ro alpine \
+>     cat /state/init.json > vault-init.json
+> ```
+
+If you skip this step and you ever lose the host volume, the data in vault is **unrecoverable**.
+
+### 2.4 Verify
+
+```bash
+./scripts/check.sh
+```
+
+One PASS/FAIL line per check: `.env` completeness, container health, vault
+seal state, the management API, the two public endpoints peers will dial,
+and a real token minted against the operator's STS (which also proves the
+DCP scope configuration — see §6.3). All PASS = the connector is ready to
+interact with the dataspace.
+
+<details>
+<summary>What check.sh does, as manual commands</summary>
+
+```bash
+# Management API (localhost only; the body must be a JSON-LD QuerySpec —
+# a bare {} is rejected with HTTP 400):
 curl -sS \
     -H "X-Api-Key: $(grep EDC_API_KEY .env | cut -d= -f2)" \
     -H "Content-Type: application/json" \
     http://127.0.0.1:29181/management/v3/assets/request \
     -d '{"@context":{"@vocab":"https://w3id.org/edc/v0.0.1/ns/"},"@type":"QuerySpec"}' | jq
-```
 
-From the public Internet:
-
-```bash
-# DSP version endpoint (your peers will hit this)
+# DSP version endpoint (your peers will hit this) — expect a version document:
 curl -sS https://<your-public-host>/api/v1/dsp/.well-known/dspace-version
+
+# Public data plane — expect 401 (routed, and not wide open):
+curl -sS -o /dev/null -w '%{http_code}\n' https://<your-public-host>/api/public
 ```
 
-If both return JSON (an empty array `[]` and a version document, respectively), the connector is ready to interact with the dataspace.
+The STS check is the §5.1 smoke-test.
+
+</details>
 
 ---
 
@@ -374,14 +376,16 @@ In that mode, your edge needs:
 
 ## 5. Verifying compatibility with Hanka
 
-After §2.3, two checks isolate the most common failure modes before
+After §2.2, two checks isolate the most common failure modes before
 they bite during a real catalog request.
 
 ### 5.1 STS smoke-test (does your connector authenticate?)
 
-Mint a token by hand and confirm the inner `token` claim is present.
-Replace `<peer DID>` with any peer you'd talk to (e.g. Hanka's
-provider DID `did:web:identityhub.hanka.ai:BPNL00000003AYRE`):
+`./scripts/check.sh` already runs this as its `[sts]` check. The manual
+version, if you want to inspect the token yourself: mint a token by hand
+and confirm the inner `token` claim is present. Replace `<peer DID>` with
+any peer you'd talk to (e.g. Hanka's provider DID
+`did:web:identityhub.hanka.ai:BPNL00000003AYRE`):
 
 ```bash
 RESP=$(curl -sX POST \

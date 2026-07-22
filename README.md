@@ -54,16 +54,14 @@ git clone https://github.com/felipebustillo/edc-docker.git
 cd edc-docker
 
 ./scripts/setup.sh                             # defaults to the Hanka preset
-$EDITOR .env                                   # fill in values from operator
+$EDITOR .env                                   # fill in the values from your operator
+./scripts/up.sh                                # bootstraps vault + starts everything
 
-# One-time vault bootstrap
-docker compose up -d --wait vault
-docker compose run --rm vault-init
-docker compose up -d vault-unseal
+# One time: back up the vault unseal keys, then shred the local copy
 docker compose cp vault-unseal:/vault/state/init.json ./vault-init.json
-# back up vault-init.json off-host, then: shred -u vault-init.json
+shred -u vault-init.json                       # after saving it in a password manager
 
-./scripts/up.sh                                # always use this, not plain `compose up`
+./scripts/check.sh                             # PASS/FAIL: env, vault, APIs, STS
 ```
 
 Detailed walkthrough — including optionally bringing your own signer key, smoke-tests, backup recipes, and how to verify compatibility with Hanka — in [`docs/ONBOARDING.md`](docs/ONBOARDING.md).
@@ -72,6 +70,7 @@ Detailed walkthrough — including optionally bringing your own signer key, smok
 
 ```bash
 ./scripts/up.sh                      # safe in any state (cold start, after long stop, after restart)
+./scripts/check.sh                   # deployment doctor: one PASS/FAIL line per check
 docker compose logs -f controlplane
 docker compose down                  # stop, keep volumes
 ```
