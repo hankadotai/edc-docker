@@ -59,13 +59,14 @@ $EDITOR .env                                   # fill in values from operator
 # One-time vault bootstrap
 docker compose up -d --wait vault
 docker compose run --rm vault-init
-docker compose cp vault-init:/vault/state/init.json ./vault-init.json
+docker compose up -d vault-unseal
+docker compose cp vault-unseal:/vault/state/init.json ./vault-init.json
 # back up vault-init.json off-host, then: shred -u vault-init.json
 
 ./scripts/up.sh                                # always use this, not plain `compose up`
 ```
 
-Detailed walkthrough — including the token-signer keypair generation, smoke-tests, backup recipes, and how to verify compatibility with Hanka — in [`docs/ONBOARDING.md`](docs/ONBOARDING.md).
+Detailed walkthrough — including optionally bringing your own signer key, smoke-tests, backup recipes, and how to verify compatibility with Hanka — in [`docs/ONBOARDING.md`](docs/ONBOARDING.md).
 
 ## Day-to-day
 

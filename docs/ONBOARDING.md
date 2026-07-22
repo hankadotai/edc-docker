@@ -192,10 +192,12 @@ EDC_DATAPLANE_PUBLIC_URL=https://<your-public-host>/api/public
 ```
 
 If `CREDENTIAL_SERVICE_URL` in your preset contains the placeholder
-`<BASE64_BPN>`, replace it with the base64 (no padding) of your BPN:
+`<BASE64_BPN>`, replace it with the base64 of your BPN. Keep the `=`
+padding — the Identity Hub credential service expects it (this is what
+Hanka's portal emits):
 
 ```bash
-echo -n "$(grep EDC_BPN .env | cut -d= -f2)" | base64 | tr -d '='
+echo -n "$(grep EDC_BPN .env | cut -d= -f2)" | base64
 ```
 
 ### 2.2 Bootstrap vault (one time only)
@@ -254,11 +256,13 @@ When you see `Started Hashicorp Vault Token authentication extension` and a stea
 From the host:
 
 ```bash
-# Management API (localhost only, returns the catalog of your own assets — empty at first)
+# Management API (localhost only, returns the catalog of your own assets — empty at first).
+# The v3 assets/request body must be a JSON-LD QuerySpec; a bare {} is rejected with HTTP 400.
 curl -sS \
     -H "X-Api-Key: $(grep EDC_API_KEY .env | cut -d= -f2)" \
     -H "Content-Type: application/json" \
-    http://127.0.0.1:29181/management/v3/assets/request -d '{}' | jq
+    http://127.0.0.1:29181/management/v3/assets/request \
+    -d '{"@context":{"@vocab":"https://w3id.org/edc/v0.0.1/ns/"},"@type":"QuerySpec"}' | jq
 ```
 
 From the public Internet:

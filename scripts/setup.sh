@@ -83,9 +83,10 @@ Next steps:
   2. First time only — bootstrap vault and back up the unseal keys:
        docker compose up -d --wait vault
        docker compose run --rm vault-init
-       docker compose cp vault-init:/vault/state/init.json ./vault-init.json
+       docker compose up -d vault-unseal
+       docker compose cp vault-unseal:/vault/state/init.json ./vault-init.json
        # *** copy vault-init.json into a password manager / encrypted backup ***
-       rm -f vault-init.json
+       shred -u vault-init.json
   3. Bring up the stack (use this every time, not plain docker compose up):
        ./scripts/up.sh
 

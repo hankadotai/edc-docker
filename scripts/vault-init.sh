@@ -89,7 +89,11 @@ if [ "${INITIALIZED}" != "true" ]; then
 # Copy them out and store them somewhere safe (password manager, encrypted
 # backup). If you lose them, the data in vault is unrecoverable.
 #
-#     docker compose cp vault-init:/vault/state/init.json ./vault-init.json
+# Copy via the long-running vault-unseal sidecar (this vault-init container is
+# a one-shot `run --rm` and is gone the moment it exits):
+#
+#     docker compose up -d vault-unseal
+#     docker compose cp vault-unseal:/vault/state/init.json ./vault-init.json
 ###############################################################################
 
 WARN
